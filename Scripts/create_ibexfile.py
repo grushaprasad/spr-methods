@@ -6,7 +6,7 @@ total_sentences = 48
 filenames = ['../Stimuli/A1.csv',
             '../Stimuli/A2.csv',
             '../Stimuli/B1.csv',
-            '../Stimuli/B1.csv',
+            '../Stimuli/B2.csv',
             '../Stimuli/A1_reversed.csv',
             '../Stimuli/A2_reversed.csv',
             '../Stimuli/B1_reversed.csv',

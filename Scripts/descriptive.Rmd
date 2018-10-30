@@ -1,0 +1,127 @@
+---
+title: "Descriptive"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(plyr)
+library("reshape2")
+library(forcats)
+library(stringr)
+library(lme4)
+library(data.table)
+```
+
+### Set up
+
+**Defining some functions**
+
+```{r}
+#Used to get the mean and sd of any dependent variable in a df as grouped by specific independent variables
+data_summary <- function(data, varname, groupnames){
+  require(plyr)
+   length2 <- function (x, na.rm=FALSE) {
+        if (na.rm) sum(!is.na(x))
+        else       length(x)
+    }
+  summary_func <- function(x, col){
+    c(N    = length2(x[[col]], na.rm=TRUE),
+      mean = mean(x[[col]], na.rm=TRUE),
+      sd = sd(x[[col]], na.rm=TRUE))
+  }
+  data_sum<-ddply(data, groupnames, .fun=summary_func,
+                  varname)
+  data_sum <- rename(data_sum, c("mean" = varname))
+  
+  data_sum$se <- data_sum$sd / sqrt(data_sum$N)
+
+  ciMult <- qt(0.95/2 + .5, data_sum$N-1)
+  data_sum$ci <- data_sum$se * ciMult
+ return(data_sum)
+}
+
+filter_data <- function(d, filt_var, filt_val){
+  m <- mean(d[[filt_var]])
+  s <- sd(d[[filt_var]])
+  subset(d, d[[filt_var]] > m-(filt_val*s) & d[[filt_var]] < m+(filt_val*s))
+}
+
+plot_regions <- function(d,x_val,y_val,group_val) {
+  ggplot(data=d,
+       aes_string(x=x_val, y=y_val, colour=group_val, group = group_val)) + geom_point() + geom_line()
+}
+
+get_diff <- function(d,colname_var, var1, var2, colname_val, new_colname) {
+  data_var1 <- subset(d, d[[colname_var]]==var1)
+  data_var2 <- subset(d, d[[colname_var]]==var2)
+  new <- data_var1
+  new[[new_colname]] <- data_var1[[colname_val]] - data_var2[[colname_val]]
+  return(new)
+}
+
+```
+
+```{r}
+spr <- read.csv('../Data/spr_test.csv')
+
+spr$word_length <- nchar(as.character(spr$word))
+
+#demographic <-  read.csv('../Data/demographic_test.csv')
+#demographic <-  fread('../Data/demographic_test.csv')
+
+```
+
+### Tests to check we have all the correct data
+
+**Testing the number of participants, conditions etc**
+
+```{r}
+
+length(unique(spr$participant))
+length(unique(spr$sentence))
+questions <- subset(spr, region == 'Question')
+
+ambig <- subset(spr, sentence_type == 'reduced')
+length(unique(ambig$sentence))
+
+unambig <- subset(spr, sentence_type == 'unreduced')
+length(unique(unambig$sentence))
+
+filler <- subset(spr, sentence_type == 'filler')
+length(unique(filler$sentence))
+
+length(unique(spr$list))
+
+```
+
+
+**Making sure there are the right number of stimuli**
+
+```{r}
+for(sent in unique(ambig$sentence)){
+  curr_set <- subset(ambig, region == 'Question' & sentence == sent)
+  print(paste(nrow(curr_set), sent))
+}
+
+print('_____________________')
+for(sent in unique(unambig$sentence)){
+  curr_set <- subset(unambig, region == 'Question' & sentence == sent)
+  print(paste(nrow(curr_set), sent))
+}
+
+for(sent in unique(filler$sentence)){
+  curr_set <- subset(filler, region == 'Question' & sentence == sent)
+  print(paste(nrow(curr_set), sent))
+}
+
+for(part in unique(spr$participant)){
+  curr_par <- subset(spr, participant == part)
+  curr_ques <- subset(curr_par, region == 'Question')
+  print(paste(part,nrow(curr_ques)))
+
+}
+
+rm(curr_par, curr_ques, curr_set, filler, questions)
+```
