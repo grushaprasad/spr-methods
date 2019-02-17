@@ -1,6 +1,6 @@
 ---
 title: 'SPR methods: Power analyses'
-output: html_document
+output: github_document
 ---
 
 ```{r setup, include=FALSE}
@@ -517,5 +517,17 @@ power420 <- run_sims(model = model1, num_sims = 100, num_groups = 3, num_partici
 ```{r}
 
 print_power(power420, length(model1_coefs))
+
+```
+
+```{r, cache=TRUE, warning=FALSE, message=FALSE}
+
+power600 <- run_sims(model = model1, num_sims = 100, num_groups = 3, num_participants = 600  , model_coefs = model1_coefs, model_coef_list = model1_coef_list, model_item_ranef_list = model1_item_ranef_list, model_part_ranef_list = model1_part_ranef_list, model_part_ranefs = model1_part_ranefs, model_item_ranefs = model1_item_ranefs, model_colnames = model1_colnames, model_formula = model1_formula, results_colnames =model1_results_colnames)
+
+```
+
+```{r}
+
+print_power(power600, length(model1_coefs))
 
 ```
