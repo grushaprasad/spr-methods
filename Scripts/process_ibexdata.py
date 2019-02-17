@@ -2,9 +2,9 @@ import json
 import csv
 import re
 from string import digits
-data_file = '../Data/raw_results_test.txt'
-spr_filename = '../Data/spr_test.csv'
-demographic_filename = '../Data/demographic_test.csv'
+data_file = '../Data/SPR_results_MTURK.txt'
+spr_filename = '../Data/mturk.csv'
+demographic_filename = '../Data/mturk_demographic.csv'
 
 #f = open('good_participants.txt', 'r')
 #good_participants = json.loads(f.read())
@@ -138,7 +138,7 @@ def process_participant(participant_data):
                 if sent[-1] != '.': 
                     sent = sent+'.'  #if for some reason sentences don't have full stop at the end add it.
                 sentence.append(sent)
-                resps.append("NA")
+                resps.append('NA')
                 region.append(curr_region)
             else:
                 words.append(curr[5][1])

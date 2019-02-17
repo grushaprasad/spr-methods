@@ -33,11 +33,18 @@ for s in range(total_sentences):
         else:
             print 'Did not find yes or no'
         if s == 0:
-            print '[["%s",1], "DashedSentence", {s: "%s"}, "Question", {q: "%s", hasCorrect: %s}],' %(row[0], row[1], row[2], resp) 
+            'hello'
+            #print '[["%s",1], "DashedSentence", {s: "%s"}, "Question", {q: "%s", hasCorrect: %s}],' %(row[0], row[1], row[2], resp) 
         else:
-            print '[["%s",[%s,1]], "DashedSentence", {s: "%s"}, "Question", {q: "%s", hasCorrect: %s}],' %(row[0], s+1, row[1], row[2], resp)
+            'hell0'
+            #print '[["%s",[%s,1]], "DashedSentence", {s: "%s"}, "Question", {q: "%s", hasCorrect: %s}],' %(row[0], s+1, row[1], row[2], resp)
 
         if row[0] in sent_dict:
             sent_dict[row[0]] +=1
         else:
             sent_dict[row[0]] = 1
+
+print 'testing'
+for key in sent_dict.keys():
+    print sent_dict[key]
+  #if sent_dict[key] != 4 or sent_dict[key] != 8 : print key

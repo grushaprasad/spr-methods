@@ -1,0 +1,521 @@
+---
+title: 'SPR methods: Power analyses'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(plyr)
+library("reshape2")
+library(forcats)
+library(stringr)
+library(lme4)
+library(data.table)
+library(lmerTest)
+library(MASS)
+```
+
+### Set up
+
+**Defining some functions**
+
+```{r}
+#Used to get the mean and sd of any dependent variable in a df as grouped by specific independent variables
+data_summary <- function(data, varname, groupnames){
+  require(plyr)
+   length2 <- function (x, na.rm=FALSE) {
+        if (na.rm) sum(!is.na(x))
+        else       length(x)
+    }
+  summary_func <- function(x, col){
+    c(N    = length2(x[[col]], na.rm=TRUE),
+      mean = mean(x[[col]], na.rm=TRUE),
+      sd = sd(x[[col]], na.rm=TRUE))
+  }
+  data_sum<-ddply(data, groupnames, .fun=summary_func,
+                  varname)
+  data_sum <- rename(data_sum, c("mean" = varname))
+  
+  data_sum$se <- data_sum$sd / sqrt(data_sum$N)
+
+  ciMult <- qt(0.95/2 + .5, data_sum$N-1)
+  data_sum$ci <- data_sum$se * ciMult
+ return(data_sum)
+}
+
+data_summ <- function(data, varname, groupnames){
+  require(plyr)
+   length2 <- function (x, na.rm=FALSE) {
+        if (na.rm) sum(!is.na(x))
+        else       length(x)
+    }
+  summary_func <- function(x, col){
+    c(N    = length2(x[[col]], na.rm=TRUE),
+      mean = mean(x[[col]], na.rm=TRUE),
+      sd = sd(x[[col]], na.rm=TRUE))
+  }
+  data_sum<-ddply(data, groupnames, .fun=summary_func,
+                  varname)
+  data_sum <- rename(data_sum, c("mean" = varname))
+ return(data_sum)
+}
+
+
+filter_data <- function(d, filt_var, filt_val){
+  m <- mean(d[[filt_var]])
+  s <- sd(d[[filt_var]])
+  subset(d, d[[filt_var]] > m-(filt_val*s) & d[[filt_var]] < m+(filt_val*s))
+}
+
+plot_regions <- function(d,x_val,y_val,group_val) {
+  ggplot(data=d,
+       aes_string(x=x_val, y=y_val, colour=group_val, group = group_val)) + geom_point() + geom_line()
+}
+
+get_diff <- function(d,colname_var, var1, var2, colname_val, new_colname) {
+  data_var1 <- subset(d, d[[colname_var]]==var1)
+  data_var2 <- subset(d, d[[colname_var]]==var2)
+  new <- data_var1
+  new[[new_colname]] <- data_var1[[colname_val]] - data_var2[[colname_val]]
+  return(new)
+}
+
+c. <- function (x) scale(x, scale = FALSE)
+
+
+```
+
+```{r}
+
+mturk <- read.csv('../Data/mturk.csv', header = TRUE)
+mturk$modality <- "MTurk"
+mturk_demographic <- read.csv('../Data/mturk_demographic.csv', header = TRUE)
+mturk_demographic$modality <- "MTurk"
+
+
+sona_lab <- read.csv('../Data/sona_lab.csv', header = TRUE)
+sona_lab$modality <- "SONA lab"
+sona_lab_demographic <- read.csv('../Data/sona_lab_demographic.csv', header = TRUE)
+sona_lab_demographic$modality <- "SONA lab"
+
+sona_online <- read.csv('../Data/sona_online.csv', header = TRUE)
+sona_online$modality <- "SONA online"
+sona_online_demographic <- read.csv('../Data/sona_online_demographic.csv', header = TRUE)
+sona_online_demographic$modality <- "SONA online"
+
+spr <- rbind(mturk, sona_lab, sona_online)
+spr$word_length <- nchar(as.character(spr$word))
+demographic <- rbind(mturk_demographic, sona_lab_demographic, sona_online_demographic)
+
+colnames(demographic) <- c('firstlang_eng', 'first_lang', 'other_langs', 'gender', 'age', 'age_acquisition', 'country', 'participant', 'proficiency', 'education')
+
+```
+
+
+```{r, cache = TRUE, fig.height=4, fig.width=6}
+
+# Exclude non-native speakers
+native <- subset(spr, trimws(as.character(participant)) %in% trimws(as.character(demographic[demographic$firstlang_eng != 'No',]$participant)))
+
+# Get accuracy of all filler items
+fillers <- subset(native, sentence_type == 'filler')
+mean_accs_fillers_byitem <- ddply(fillers, .(sent_id), function(x) mean(x$response, na.rm=T))
+
+mean_accs_fillers_byitem$sent_id <- factor(mean_accs_fillers_byitem$sent_id, levels = unique(mean_accs_fillers_byitem$sent_id[order(mean_accs_fillers_byitem$V1)])) #reordering by accuracy
+
+ggplot(mean_accs_fillers_byitem,aes(x=sent_id, y=V1)) + geom_point() + labs(title = 'Mean accuracy for fillers', x = 'Fillers sorted by accuracy', y = 'Accuracy') + ylim(0, 1)
+
+# Get IDs of outliers that have accuracy below 2sd
+outliers <- unique(subset(mean_accs_fillers_byitem, V1 < mean(mean_accs_fillers_byitem$V1) - (2*sd(mean_accs_fillers_byitem$V1)))$sent_id)
+length(outliers)
+
+# Get mean accuracy for each participant excluding the outlier items
+mean_accs_fillers_byparticipant <- ddply(subset(fillers, !(sent_id %in% outliers)), .(participant,list), function(x) mean(x$response, na.rm=T))
+
+mean_accs_fillers_byparticipant$participant <- factor(mean_accs_fillers_byparticipant$participant, levels = unique(mean_accs_fillers_byparticipant$participant[order(mean_accs_fillers_byparticipant$V1)])) #reordering by accuracy
+
+ggplot(mean_accs_fillers_byparticipant,aes(x=participant, y=V1)) + geom_point() + labs(title = 'Mean filler accuracy for participants (excluding outlier fillers)', x = 'Participants sorted by accuracy', y = 'Accuracy') + ylim(0, 1)
+
+# Exclude participants with accuracy less than 0.8
+exclusion_value <- min(mean(mean_accs_fillers_byparticipant$V1) - 2*sd(mean_accs_fillers_byparticipant$V1), 0.8)
+
+
+accurate <- subset(native, participant %in% mean_accs_fillers_byparticipant[mean_accs_fillers_byparticipant$V1 > 0.8,]$participant)
+accurate$region <- trimws(accurate$region)
+accurate$sentence <- trimws(accurate$sentence)
+
+# Exclude observations with RTs less than 100 and greater than 2000 ms
+no_questions <- subset(accurate, is.na(accurate$response))
+no_outliers <- subset(no_questions, rt > 100 & rt < 2000)
+
+# Length correction
+mixed_model <- lmer(log(rt) ~ scale(word_length) + (1+scale(word_length)|participant), no_outliers)
+no_outliers$corrected_log_rt <- residuals(mixed_model)
+
+mean_rt_bypart <- data_summary(no_outliers, 'rt', 'participant')
+mean_rt_bypart$participant <- factor(mean_rt_bypart$participant, levels = unique(mean_rt_bypart$participant[order(mean_rt_bypart$rt)]))
+ggplot(mean_rt_bypart,aes(x=participant, y=rt)) + geom_point() + labs(title = 'Mean rt for each participant')
+
+
+slow_parts <- subset(mean_rt_bypart, rt > mean(mean_rt_bypart$rt) + 3*sd(mean_rt_bypart$rt))
+
+no_slow_parts <- subset(no_outliers, !(participant %in% unique(slow_parts$participant)))
+```
+
+```{r}
+
+length(unique(subset(no_slow_parts, modality == 'MTurk')$participant))
+length(unique(subset(no_slow_parts, modality == 'SONA lab')$participant))
+length(unique(subset(no_slow_parts, modality == 'SONA online')$participant))
+
+
+
+by_sentnum <- data_summary(subset(no_slow_parts, region == 'Disambig_region'), 'corrected_log_rt', groupnames = c('sentence_type', 'modality', 'sent_num'))
+
+ggplot(by_sentnum, aes(sent_num, corrected_log_rt, group = sentence_type, colour = sentence_type)) + geom_point() + geom_smooth(method=lm) + facet_wrap(~modality)
+
+```
+
+### Model
+
+```{r, cache=TRUE}
+
+disambig <- subset(no_slow_parts, region == "Disambig_region")
+disambig_summary <- data_summ(disambig, 'corrected_log_rt', groupnames = c('sentence_type', 'participant', 'sent_id', 'modality', 'sent_num'))
+
+#disambig_summary <- data_summ(disambig, 'rt', groupnames = c('sentence_type', 'participant', 'sent_id', 'modality', 'sent_num'))
+
+disambig_summary$sent_id_unique <- factor(str_split_fixed(disambig_summary$sent_id, '_', 2)[,1])
+
+disambig_summary$modality <- factor(disambig_summary$modality, levels = c("MTurk", "SONA online", "SONA lab"))
+contrasts(disambig_summary$modality) <- "contr.sum"
+contrasts(disambig_summary$modality)
+
+disambig_summary$sentence_type <- factor(disambig_summary$sentence_type,levels = c('reduced', 'unreduced'))
+contrasts(disambig_summary$sentence_type) <- "contr.sum"
+contrasts(disambig_summary$sentence_type)
+
+```
+
+```{r, cache = TRUE}
+
+model1 <- lmer(corrected_log_rt ~ sentence_type * modality * c.(log(sent_num)) + (1 + sentence_type + c.(log(sent_num)) | participant) + (1 + sentence_type | sent_id_unique), disambig_summary)
+
+print(coef(summary(model1)), digits = 2)
+
+summary(model1)
+```
+
+
+### Running the power analyses
+
+#### Defining functions
+
+```{r, cache=TRUE}
+
+# CREATE DATASET WITH PREDICTED MODEL RT
+
+create_dataset <- function(num_participants_pergroup, num_groups, group_names, coef_list, coefs, intercept, effect_size_multiple) {
+  
+  total_parts <- num_participants_pergroup * num_groups
+
+  num_random_orders <- 2
+  num_conds <- 2
+  num_lists <- num_random_orders*num_conds
+  
+  num_items <- 48  #16 critical items, 32 fillers
+  r <- c(1:16)  # RRC ids 
+  f <- c(17:48) # filler ids 
+  
+  item_set1 <- sample(c(r,f)) #one random order
+  item_set2 <- sample(c(r,f)) #another random order
+  
+  crit_conds1a <- sample(rep(c(1,-1),8))
+  crit_conds1b <- ifelse(crit_conds1a == 1, -1, 1)
+  crit_conds2a <- sample(rep(c(1,-1),8))
+  crit_conds2b <- ifelse(crit_conds2a == 1, -1, 1)
+  
+  combined_item_set <- c(item_set1, item_set1, item_set2, item_set2)  # 1A, 1B, 2A, 2B
+  combined_crit_conds <- c(crit_conds1a, crit_conds1b, crit_conds2a, crit_conds2b)
+  
+  conds <- rep(7, length(combined_item_set))
+  
+  i <- 1
+  j <- 1
+  # 1 RRC, -1 URC, 0 filler
+  for(item in combined_item_set){
+    if(item > 16) {
+      conds[i] <- 0
+    }
+    else {
+      conds[i] <- combined_crit_conds[j]
+      j <- j + 1
+    }
+    i <- i + 1
+  }
+  
+  sentence_type <- rep(conds, (total_parts/num_lists))
+  
+
+  participant <- factor(rep(c(1:total_parts), each = num_items))
+  item <- factor(rep(combined_item_set, times = (total_parts/num_lists)))
+  sent_num <- rep(c(1:num_items), total_parts)
+  sent_num <- c.(log(sent_num))
+  modality <- rep(group_names, each = num_participants_pergroup*num_items)
+  
+  d <- data.frame(participant = participant, sentence_type = sentence_type, sent_num = sent_num, modality = modality, item = item)
+  
+  d$modality1 <- ifelse(d$modality == group_names[1], 1, 
+                        ifelse(d$modality == group_names[3], -1, 0))
+  
+  d$modality2 <- ifelse(d$modality == group_names[2], 1, 
+                        ifelse(d$modality == group_names[3], -1, 0))
+  
+  d$model_rt <- 0
+  
+  for(i in c(1:length(coef_list))){
+    curr_coef <- 1
+    for(item in head(coef_list[[i]])){   # for when there is interaction
+      curr_coef <- curr_coef * d[[item]]
+    }
+    d$model_rt <- d$model_rt + curr_coef*coefs[i]
+  }
+  d$model_rt <- intercept + effect_size_multiple*d$model_rt
+  
+  return(d)
+}
+
+# ADD RANDOM EFFECTS
+
+add_random.effects_bygroup <- function(df, all_coefs,var_name, group_name, ranef_list) {
+  # df is one row in the dataframe (e.g. one row for a participant)
+  # all_coefs is a dataframe with as many rows as participants/items
+  coefs <- subset(all_coefs, all_coefs[[group_name]] == unique(df[[group_name]]))
+
+  # Initializes varname.rand (e.g. part.rand) with the intercept (i.e. the random intercept)
+  df[[paste(var_name, '.rand', sep = "")]] <- coefs$intercept
+  
+  #For every random slope, gets the value of the slope (e.g. sent_num = 1) and multiplies with random coef (which we got through the mvrnorm)
+  for(i in c(1:length(ranef_list))){
+    curr_coef <- 1
+    for(item in head(ranef_list[[i]])){ # applies for random slopes with interactions
+      curr_coef <- curr_coef * df[[item]] 
+    }
+    
+    df[[paste(var_name, '.rand', sep = "")]] <- df[[paste(var_name, '.rand', sep = "")]] + curr_coef*coefs[,i]   # adds the value to varname.rand 
+  }
+  
+  return(df)
+}
+
+
+add_random.effects <- function(df, model, num_participants, num_coefs, colnames, part_ranefs, item_ranefs, part_ranef_list, item_ranef_list) {
+  #by participant
+  num_total_items <- length(unique(df$item))
+  
+  # Get a random number for every beta in the model, sampled from the covariance matrix. 
+  # Resulting df has one row per participant and as many cols as coefficients in the model. 
+  all_by.part.ranef <- data.frame(mvrnorm(num_participants, rep(0, num_coefs), vcov(model)))
+  colnames(all_by.part.ranef) <- colnames
+
+  # Get the random vals only for beta that we want to specify random slopes for (as specified in the part_ranefs)
+  relevant_by.part.ranef <- subset(all_by.part.ranef, select= part_ranefs)
+  relevant_by.part.ranef$participant <- c(1:num_participants) 
+
+  # For every participant, add by participant random effects
+  new_df <- ddply(df, .(participant), add_random.effects_bygroup, relevant_by.part.ranef, 'part', 'participant', part_ranef_list)
+  
+  #by item (Same process as by_participant)
+  
+  # Resulting df has one row per item and as many cols as coefficients in the model.
+  all_by.item.ranef <- data.frame(mvrnorm(num_total_items, rep(0, num_coefs), vcov(model)))
+  colnames(all_by.item.ranef) <- colnames
+  
+  relevant_by.item.ranef <- subset(all_by.item.ranef, select= item_ranefs)
+  relevant_by.item.ranef$item <- c(1:num_total_items)
+  new_df <- ddply(new_df, .(item), add_random.effects_bygroup, relevant_by.item.ranef, 'item', 'item',item_ranef_list)
+
+  return(new_df)
+}
+
+# ADD RESIDUALS
+
+add_residuals <- function(d, model, num_participants) {
+  num_items <- 48
+  d$residuals <- rnorm(num_items*num_participants, 0,sigma(model))
+  return(d)
+}
+
+# RUN SIMULATIONS
+
+run_sims <- function(model, num_sims, num_participants, num_groups = 3,  group_names=c('Mturk', 'SONA online', 'SONA lab'), prev_ambig, prev_sent, model_coefs, model_coef_list, model_part_ranef_list, model_item_ranef_list, model_part_ranefs, model_item_ranefs, model_colnames, model_formula, results_colnames, effect_size_multiple=1) {
+
+  num_participants_pergroup <- num_participants/num_groups
+
+  results <- as.data.frame(NULL)
+
+  i <- 0
+  convergence_failures <- 0
+  #run simulations until you have the desired number of models that converge or the number of failures to converge = desired number of simulations 
+  while(i < num_sims & convergence_failures < num_sims) {
+    
+    curr_df <- create_dataset(num_participants_pergroup, num_groups, group_names, model1_coef_list, model1_coefs[-1], model1_coefs[1], effect_size_multiple)
+    
+    curr_df$modality <- factor(curr_df$modality, levels = group_names)
+    contrasts(curr_df$modality) <- "contr.sum"
+
+    
+    curr_df <- add_random.effects(curr_df, model, num_participants, length(model_coefs), model_colnames, model_part_ranefs, model_item_ranefs, model_part_ranef_list, model_item_ranef_list)
+    
+    curr_df <- add_residuals(curr_df, model, num_participants)
+    
+    curr_df$predicted_rt <- curr_df$model_rt + curr_df$part.rand + curr_df$item.rand + curr_df$residuals
+    
+    curr_df_crit <- subset(curr_df, sentence_type != 0)
+    
+    
+    form <- as.formula(paste("predicted_rt ~ ", model_formula))
+    new_model <- lmer(form, curr_df_crit,maxfun = 1e+05)
+    #return(new_model)
+    
+    failed_to_converge <-  any( grepl("failed to converge", new_model@optinfo$conv$lme4$messages))  
+    
+    if(!failed_to_converge) {
+      i <- i + 1
+      new <- c(coef(summary(new_model))[ , "Estimate"],coef(summary(new_model))[ , "t value"], coef(summary(new_model))[ , "Pr(>|t|)"])
+      results <- rbind(results, new)
+    }
+    else {
+      convergence_failures <- convergence_failures + 1
+    }
+  }
+  
+
+  colnames(results) <- results_colnames
+  print(paste("Number of models that failed to converge:", convergence_failures))
+  return(results)
+}
+
+
+# PRINTING FUNCTION 
+# Prints mean coefficient and p-values for al coefficients. Ignores t-values.
+print_power <- function(df, num_coefs) {
+  print(paste("Number of models: ", nrow(df)))
+  i <- 0
+  for(col in colnames(df)){
+    i <- i + 1
+    if(i <= num_coefs) {
+      print(paste(col, mean(df[[col]])))
+    }
+    if(i > num_coefs*2) {
+      print('--------------------------------')
+      print(col)
+      print(paste('< 0.05',(sum(df[[col]] < 0.05))/nrow(df)))
+      print(paste('< 0.01',(sum(df[[col]] < 0.01))/nrow(df)))
+      print(paste('< 0.005',(sum(df[[col]] < 0.005))/nrow(df)))
+      print(paste('< 0.001',(sum(df[[col]] < 0.001))/nrow(df)))
+    }
+  }
+}
+
+
+```
+
+
+#### Setting up the model
+
+```{r, cache=TRUE}
+
+model1_coefs <-  coef(summary(model1))[ , "Estimate"]
+
+model1_coef_list <- list(list('sentence_type'), list('modality1'), list('modality2'), list('sent_num'), list('sentence_type', 'modality1'), list('sentence_type', 'modality2'), list('sentence_type','sent_num'), list('modality1', 'sent_num'), list('modality2', 'sent_num'), list('sentence_type', 'modality1', 'sent_num'), list('sentence_type', 'modality2', 'sent_num') )
+
+
+#model1_part_ranef_list <- list(list('sentence_type'), list('sent_num'), list('sentence_type', 'sent_num'))
+#model1_part_ranefs <- c('intercept', 'sentence_type', 'sent_num', 'sentence_type:sent_num')
+
+model1_part_ranef_list <- list(list('sentence_type'), list('sent_num'))
+model1_part_ranefs <- c('intercept', 'sentence_type', 'sent_num')
+
+#model1_item_ranef_list <- list(list('sentence_type'), list('modality1'), list('modality2'), list('sentence_type', 'modality1'), list('sentence_type', 'modality2'))
+#model1_item_ranefs <- c('intercept','sentence_type', 'modality1', 'modality2', 'sentence_type:modality1', 'sentence_type:modality2')
+
+model1_item_ranef_list <- list(list('sentence_type'))
+model1_item_ranefs <- c('intercept','sentence_type')
+
+model1_colnames <- c('intercept', 'sentence_type', 'modality1', 'modality2', 'sent_num', 'sentence_type:modality1', 'sentence_type:modality2', 'sentence_type:sent_num', 'modality1: sent_num', 'modality2:sent_num', 'sentence_type:modality1:sent_num', 'sentence_type:modality2:sent_num')
+
+model1_results_colnames <- c(model1_colnames, 't.intercept', 't.sentence_type', 't.modality1', 't.modality2', 't.sent_num', 't.sentence_type:modality1', 't.sentence_type:modality2', 't.sentence_type:sent_num', 't.modality1:sent_num', 't.modality2:sent_num', 't.sentence_type:modality1:sent_num', 't.sentence_type:modality2:sent_num', 'p.intercept', 'p.sentence_type', 'p.modality1', 'p.modality2', 'p.sent_num', 'p.sentence_type:modality1', 'p.sentence_type:modality2', 'p.sentence_type:sent_num', 'p.modality1:sent_num', 'p.modality2:sent_num', 'p.sentence_type:modality1:sent_num', 'p.sentence_type:modality2:sent_num')
+
+
+model1_formula <- "sentence_type * modality * sent_num + (1 + sentence_type+sent_num | participant) + (1 + sentence_type | item)"
+
+
+
+```
+
+#### Running simulations
+
+
+```{r, cache=TRUE, warning=FALSE, message=FALSE}
+
+power120 <- run_sims(model = model1, num_sims = 100, num_groups = 3, num_participants = 120 , model_coefs = model1_coefs, model_coef_list = model1_coef_list, model_item_ranef_list = model1_item_ranef_list, model_part_ranef_list = model1_part_ranef_list, model_part_ranefs = model1_part_ranefs, model_item_ranefs = model1_item_ranefs, model_colnames = model1_colnames, model_formula = model1_formula, results_colnames =model1_results_colnames)
+
+```
+
+```{r}
+
+print_power(power120, length(model1_coefs))
+
+```
+
+
+```{r, cache=TRUE, warning=FALSE, message=FALSE}
+
+power240 <- run_sims(model = model1, num_sims = 100, num_groups = 3, num_participants = 240 , model_coefs = model1_coefs, model_coef_list = model1_coef_list, model_item_ranef_list = model1_item_ranef_list, model_part_ranef_list = model1_part_ranef_list, model_part_ranefs = model1_part_ranefs, model_item_ranefs = model1_item_ranefs, model_colnames = model1_colnames, model_formula = model1_formula, results_colnames =model1_results_colnames)
+
+```
+
+```{r}
+
+print_power(power240, length(model1_coefs))
+
+```
+
+
+```{r, cache=TRUE, warning=FALSE, message=FALSE}
+
+power300 <- run_sims(model = model1, num_sims = 100, num_groups = 3, num_participants = 300 , model_coefs = model1_coefs, model_coef_list = model1_coef_list, model_item_ranef_list = model1_item_ranef_list, model_part_ranef_list = model1_part_ranef_list, model_part_ranefs = model1_part_ranefs, model_item_ranefs = model1_item_ranefs, model_colnames = model1_colnames, model_formula = model1_formula, results_colnames =model1_results_colnames)
+
+```
+
+```{r}
+
+print_power(power300, length(model1_coefs))
+
+```
+
+```{r, cache=TRUE, warning=FALSE, message=FALSE}
+
+power360 <- run_sims(model = model1, num_sims = 100, num_groups = 3, num_participants = 360 , model_coefs = model1_coefs, model_coef_list = model1_coef_list, model_item_ranef_list = model1_item_ranef_list, model_part_ranef_list = model1_part_ranef_list, model_part_ranefs = model1_part_ranefs, model_item_ranefs = model1_item_ranefs, model_colnames = model1_colnames, model_formula = model1_formula, results_colnames =model1_results_colnames)
+
+```
+
+```{r}
+
+print_power(power360, length(model1_coefs))
+
+```
+
+```{r, cache=TRUE, warning=FALSE, message=FALSE}
+
+power420 <- run_sims(model = model1, num_sims = 100, num_groups = 3, num_participants = 420  , model_coefs = model1_coefs, model_coef_list = model1_coef_list, model_item_ranef_list = model1_item_ranef_list, model_part_ranef_list = model1_part_ranef_list, model_part_ranefs = model1_part_ranefs, model_item_ranefs = model1_item_ranefs, model_colnames = model1_colnames, model_formula = model1_formula, results_colnames =model1_results_colnames)
+
+```
+
+```{r}
+
+print_power(power420, length(model1_coefs))
+
+```

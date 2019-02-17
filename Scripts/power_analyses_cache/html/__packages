@@ -1,0 +1,11 @@
+base
+ggplot2
+plyr
+reshape2
+forcats
+stringr
+Matrix
+lme4
+data.table
+lmerTest
+MASS
